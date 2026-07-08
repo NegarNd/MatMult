@@ -26,7 +26,7 @@ import (
 // maximum multiplicative level of 4 — which is exactly what the Python
 // driver passes (input_level=4) to run_thor_he.
 var DefaultParams = ckks.ParametersLiteral{
-	LogN:            13,                        // ring degree 2^13  →  2^12 = 4096 slots
+	LogN:            16,                        // ring degree 2^13  →  2^12 = 4096 slots
 	LogQ:            []int{55, 45, 45, 45, 45}, // 1 × 55-bit  +  4 × 45-bit
 	LogP:            []int{61},
 	LogDefaultScale: 45,
