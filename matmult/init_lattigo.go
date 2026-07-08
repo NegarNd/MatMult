@@ -60,9 +60,9 @@ func InitLattigo(paramsLit ckks.ParametersLiteral) *HEContext {
 
 	sk := kgen.GenSecretKeyNew()
 	pk := kgen.GenPublicKeyNew(sk)
-	m0 := TakeMemSnap()
+	m0 := TakeMemSnap(true)
 	rlk := kgen.GenRelinearizationKeyNew(sk)
-	m1 := TakeMemSnap()
+	m1 := TakeMemSnap(true)
 	PrintMemDelta("Relinearization key", m0, m1)
 
 	evk := rlwe.NewMemEvaluationKeySet(rlk) // Galois keys added per-algorithm
@@ -93,15 +93,15 @@ func (ctx *HEContext) WithRotations(rotations []int) *ckks.Evaluator {
 	for i, k := range rotations {
 		galEls[i] = ctx.Params.GaloisElement(k)
 	}
-	m0 := TakeMemSnap()
+	m0 := TakeMemSnap(true)
 	gks := ctx.KeyGen.GenGaloisKeysNew(galEls, ctx.SK)
-	m1 := TakeMemSnap()
+	m1 := TakeMemSnap(true)
 	PrintMemDelta("Galois keys", m0, m1)
 
-	m2 := TakeMemSnap()
+	m2 := TakeMemSnap(true)
 	evk := rlwe.NewMemEvaluationKeySet(ctx.RLK, gks...)
 	eval := ctx.Evaluator.WithKey(evk)
-	m3 := TakeMemSnap()
+	m3 := TakeMemSnap(true)
 	PrintMemDelta("Evaluation keyset + evaluator only", m2, m3)
 	return eval
 }

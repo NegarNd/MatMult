@@ -33,9 +33,9 @@ func BMM3CiphertextSuite(verify bool, nTrials int) {
 		N, M, P int
 	}{
 		{128, 131, 129},
-		{256, 259, 257},
-		{512, 515, 513},
-		{1024, 1027, 1025},
+		// {256, 259, 257},
+		// {512, 515, 513},
+		// {1024, 1027, 1025},
 		// {2048, 2051, 2049},
 	}
 
@@ -45,6 +45,13 @@ func BMM3CiphertextSuite(verify bool, nTrials int) {
 		RunBmm3HE(ctx, c.N, c.M, c.P, inputLevel, nTrials,
 			Bmm3ModeHoisted, hoistBlockSize, verify)
 	}
+
+	// RunBmm3HE(ctx, 2048, 2051, 2049, inputLevel, nTrials,
+	// 	Bmm3ModeHoisted, 8, verify)
+	// RunBmm3HE(ctx, 2048, 2051, 2049, inputLevel, nTrials,
+	// 	Bmm3ModeHoisted, 16, verify)
+	// RunBmm3HE(ctx, 2048, 2051, 2049, inputLevel, nTrials,
+	// 	Bmm3ModeHoisted, 32, verify)
 	// Uncomment to sweep all three modes at one size:
 	// for _, mode := range []Bmm3Mode{Bmm3ModeNaive, Bmm3ModeCached, Bmm3ModeHoisted} {
 	//     RunBmm3HE(ctx, 43, 45, 44, inputLevel, nTrials, mode, hoistBlockSize, verify)
@@ -88,13 +95,16 @@ func RunBmm3HE(
 	var cChunks []*rlwe.Ciphertext
 	elapseds := make([]time.Duration, 0, nTrials)
 	for t := 0; t < nTrials; t++ {
-		beforeAlg := TakeMemSnap()
+		// beforeAlg := TakeMemSnap(true)
+		// mon := StartPeakMemMonitor(10 * time.Millisecond)
 		start := time.Now()
 		cChunks = MatMulBmm3HE(eval, ctx, aCts, bCts, n, m, p, nHE, inputLevel,
 			mode, hoistBlockSize)
 		elapsed := time.Since(start)
-		afterAlg := TakeMemSnap()
-		PrintMemDelta("MatMulBmm3HE total function memory", beforeAlg, afterAlg)
+		// mon.Stop()
+		// afterAlg := TakeMemSnap(true)
+		// PrintMemDelta("MatMulBmm3HE total function memory", beforeAlg, afterAlg)
+		// mon.PrintPeak("MatMulBmm3HE peak memory usage", beforeAlg)
 		elapseds = append(elapseds, elapsed)
 	}
 

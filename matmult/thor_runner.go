@@ -31,10 +31,10 @@ func ThorPlaintextSuite(verify bool, nTrials int) {
 	// layer (d=n=2, H=2, s=8); this port does the same by default, plus a
 	// more realistic configuration so the plaintext algorithm is exercised
 	// at production-like dimensions.
-	RunThorPlaintext(2, 2, 2, 8, verify)
-	RunThorPlaintext(128, 128, 1, 4096, verify)
+	// RunThorPlaintext(2, 2, 2, 8, verify)
+	// RunThorPlaintext(128, 128, 1, 4096, verify)
 	// RunThorPlaintext(256, 256, 1, 4096, verify)
-	// RunThorPlaintext(512, 512, 1, 4096, verify)
+	RunThorPlaintext(128, 128, 1, 4096, verify)
 }
 
 // ThorCiphertextSuite mirrors the Python `thor_ciphertext(...)` handler.
@@ -42,7 +42,7 @@ func ThorCiphertextSuite(verify bool, nTrials int) {
 	ctx := InitLattigo(DefaultParams)
 	const inputLevel = 4
 
-	for _, size := range []int{2048} {
+	for _, size := range []int{128, 256, 512, 1024} {
 		RunThorHE(ctx, size, size, 1, inputLevel, nTrials, verify)
 	}
 }
@@ -316,7 +316,7 @@ func RunThorHE(
 	}
 
 	scaleMask := rlwe.NewScale(params.Q()[inputLevel-1])
-	beforeMasks := TakeMemSnap()
+	beforeMasks := TakeMemSnap(true)
 	masks := make([]EllMask, n-1)
 	for ell := 1; ell < n; ell++ {
 		mu0, mu1, mu2 := BuildEllMasks(ell, c, n, H, s)
@@ -333,18 +333,21 @@ func RunThorHE(
 		}
 		masks[ell-1] = m
 	}
-	afterMasks := TakeMemSnap()
+	afterMasks := TakeMemSnap(true)
 	PrintMemDelta("THORCCMatMul masks", beforeMasks, afterMasks)
 	// -------- 5. Timed kernel (nTrials repetitions) ---------------------
 	var ctOut []*rlwe.Ciphertext
 	elapseds := make([]time.Duration, 0, nTrials)
 	for i := 0; i < nTrials; i++ {
-		beforeAlg := TakeMemSnap()
+		// beforeAlg := TakeMemSnap(true)
+		// mon := StartPeakMemMonitor(10 * time.Millisecond)
 		start := time.Now()
 		ctOut = ThorCCMatMulHELazyRelin(eval, ctAs, ctBRep, masks, d, n, H, s)
 		elapsed := time.Since(start)
-		afterAlg := TakeMemSnap()
-		PrintMemDelta("THORCCMatMul total function memory", beforeAlg, afterAlg)
+		// mon.Stop()
+		// afterAlg := TakeMemSnap(true)
+		// mon.PrintPeak("THORCCMatMul peak memory usage", beforeAlg)
+		// PrintMemDelta("THORCCMatMul total function memory", beforeAlg, afterAlg)
 		elapseds = append(elapseds, elapsed)
 	}
 

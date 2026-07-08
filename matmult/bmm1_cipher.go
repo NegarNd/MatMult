@@ -430,7 +430,7 @@ func bmm1MatMulPreA(
 
 	rotsA, _ := blockRotLists(sN, sM, sP)
 	distinctA := distinctNonZero(rotsA)
-	beforeHoist := TakeMemSnap()
+	beforeHoist := TakeMemSnap(true)
 	// Pre-hoist every A block once.
 	aHoist := make([][]map[int]*rlwe.Ciphertext, aRows)
 	for i := 0; i < aRows; i++ {
@@ -446,7 +446,7 @@ func bmm1MatMulPreA(
 			aHoist[i][k] = h
 		}
 	}
-	afterHoist := TakeMemSnap()
+	afterHoist := TakeMemSnap(true)
 	PrintMemDelta("BMM1 pre-hoisted A ciphertexts", beforeHoist, afterHoist)
 
 	C := make([][]*rlwe.Ciphertext, aRows)
@@ -488,7 +488,7 @@ func bmm1MatMulPreAB(
 	distinctB := distinctNonZero(rotsB)
 
 	// Pre-hoist A and B.
-	beforeHoist := TakeMemSnap()
+	beforeHoist := TakeMemSnap(true)
 	aHoist := make([][]map[int]*rlwe.Ciphertext, aRows)
 	for i := 0; i < aRows; i++ {
 		aHoist[i] = make([]map[int]*rlwe.Ciphertext, kBlocks)
@@ -513,7 +513,7 @@ func bmm1MatMulPreAB(
 			bHoist[k][j] = h
 		}
 	}
-	afterHoist := TakeMemSnap()
+	afterHoist := TakeMemSnap(true)
 	PrintMemDelta("BMM1 pre-hoisted A and B ciphertexts", beforeHoist, afterHoist)
 
 	C := make([][]*rlwe.Ciphertext, aRows)

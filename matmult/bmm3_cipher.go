@@ -640,14 +640,14 @@ func bmm3HECached(
 	mc := newMaskCache(ctx, inputLevel-1)
 	mfn := mc.get
 
-	beforeLoop := TakeMemSnap()
+	beforeLoop := TakeMemSnap(true)
 	var dest []*rlwe.Ciphertext
 	for i := 0; i < m; i++ {
 		rotA := posMod3(-i*n, nm)
 		rotB := posMod3((r*m-n)*i, mp)
 		dest = bmm3Loop(eval, aCts, bCts, rotA, rotB, nm, mp, np, nHE, mfn, nil, nil, dest)
 	}
-	afterLoop := TakeMemSnap()
+	afterLoop := TakeMemSnap(true)
 	PrintMemDelta("BMM3 bmm3Loop", beforeLoop, afterLoop)
 
 	bmm3Finalize(eval, dest)
@@ -685,10 +685,10 @@ func bmm3HEHoisted(
 			end = m
 		}
 
-		beforeHoist := TakeMemSnap()
+		beforeHoist := TakeMemSnap(true)
 		hoistedA := precomputeHoisted(eval, rotsA[base:end], np, nm, nHE, aCts)
 		hoistedB := precomputeHoisted(eval, rotsB[base:end], np, mp, nHE, bCts)
-		afterHoist := TakeMemSnap()
+		afterHoist := TakeMemSnap(true)
 		PrintMemDelta("BMM3 precomputeHoisted", beforeHoist, afterHoist)
 
 		for i := base; i < end; i++ {

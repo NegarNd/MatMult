@@ -29,10 +29,10 @@ func BMM1PlaintextSuite(verify bool, nTrials int) {
 	configs := []struct {
 		N, M, P, SN, SM, SP int
 	}{
-		{129, 135, 132, 43, 45, 44},
-		{258, 270, 264, 43, 45, 44},
-		{516, 540, 528, 43, 45, 44},
-		// {1032, 1080, 1056, 43, 45, 44},
+		// {129, 135, 132, 43, 45, 44},
+		// {258, 270, 264, 43, 45, 44},
+		// {516, 540, 528, 43, 45, 44},
+		{1032, 1080, 1056, 43, 45, 44},
 		// {2064, 2070, 2068, 43, 45, 44},
 	}
 	for _, c := range configs {
@@ -52,9 +52,14 @@ func BMM1CiphertextSuite(verify bool, nTrials int) {
 	}{
 		// {129, 135, 132, 43, 45, 44},
 		// {258, 270, 264, 43, 45, 44},
-		{516, 540, 528, 43, 45, 44},
+		// {516, 540, 528, 43, 45, 44},
 		// {1032, 1080, 1056, 43, 45, 44},
 		// {2064, 2070, 2068, 43, 45, 44},
+		// {127, 128, 125, 127, 128, 125},
+		// {254, 256, 250, 127, 128, 125},
+		// {508, 512, 500, 127, 128, 125},
+		{1016, 1024, 1000, 127, 128, 125},
+		// {1068, 1092, 1080, 89, 91, 90},
 	}
 	for _, c := range configs {
 		// RunBmm1HE(ctx, c.N, c.M, c.P, c.SN, c.SM, c.SP, inputLevel, nTrials, HoistNone, verify) // Change to HoistPreAB for optimal performance
@@ -175,12 +180,15 @@ func RunBmm1HE(
 	var cCt [][]*rlwe.Ciphertext
 	elapseds := make([]time.Duration, 0, nTrials)
 	for t := 0; t < nTrials; t++ {
-		beforeAlg := TakeMemSnap()
+		// beforeAlg := TakeMemSnap(true)
+		// mon := StartPeakMemMonitor(10 * time.Millisecond)
 		start := time.Now()
 		cCt = MatMulBmm1HE(eval, aCt, bCt, N, M, P, sN, sM, sP, nHE, hoisting)
 		elapsed := time.Since(start)
-		afterAlg := TakeMemSnap()
-		PrintMemDelta("MatMulBmm1HE total function memory", beforeAlg, afterAlg)
+		// mon.Stop()
+		// afterAlg := TakeMemSnap(true)
+		// PrintMemDelta("MatMulBmm1HE total function memory", beforeAlg, afterAlg)
+		// mon.PrintPeak("MatMulBmm1HE peak memory usage", beforeAlg)
 		elapseds = append(elapseds, elapsed)
 	}
 

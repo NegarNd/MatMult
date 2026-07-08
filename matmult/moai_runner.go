@@ -28,9 +28,9 @@ import (
 func MoaiPlaintextSuite(verify bool, nTrials int) {
 	const nHE = 1 << 12 // matches the Python driver's 2^12 plaintext slots
 
-	for _, size := range []int{128, 256, 512, 1024, 2048} {
-		RunMoaiPlaintext(size, size, nHE, false, true, verify) // naive col×col
-		RunMoaiPlaintext(size, size, nHE, true, true, verify)  // BSGS  col×col
+	for _, size := range []int{1024} {
+		// RunMoaiPlaintext(size, size, nHE, false, true, verify) // naive col×col
+		RunMoaiPlaintext(size, size, nHE, true, true, verify) // BSGS  col×col
 	}
 	// Optionally also exercise the diag×col (BSGS only) variant:
 	// RunMoaiPlaintext(128, 128, nHE, true, false, verify)
@@ -41,7 +41,7 @@ func MoaiCiphertextSuite(verify bool, nTrials int) {
 	ctx := InitLattigo(DefaultParams)
 	const inputLevel = 4
 
-	for _, size := range []int{2048} {
+	for _, size := range []int{1024} {
 		RunMoaiHE(ctx, size, size, true /*bsgs*/, true /*colCol*/, inputLevel, nTrials, verify)
 	}
 }
@@ -187,6 +187,7 @@ func RunMoaiHE(
 		rots = RequiredMoaiColColNaiveRotations(m, nBatch, nHE)
 	}
 	eval := ctx.WithRotations(rots)
+	fmt.Println("created the evaluator")
 
 	// -------- 2. Random data + plaintext reference ----------------------
 	rng := rand.New(rand.NewSource(0))
@@ -210,7 +211,7 @@ func RunMoaiHE(
 			Attns[s] = MatmulPlain(QKTs[s], Vs[s])
 		}
 	}
-
+	fmt.Println("created the matrices")
 	// -------- 3. Pack and encrypt.
 	// Q (or C) at default scale; K, V at scale Q[L] — see file header.
 	packedQ := InterleavedColumnPack(Qs, nHE)
@@ -221,6 +222,7 @@ func RunMoaiHE(
 	scaleSecond := rlwe.NewScale(params.Q()[inputLevel])
 	ctK := encryptVecsAtScale(ctx, packedK, inputLevel, scaleSecond)
 	ctV := encryptVecsAtScale(ctx, packedV, inputLevel, scaleSecond)
+	fmt.Println("encrypted the vectors")
 
 	var ctC []*rlwe.Ciphertext
 	if !colCol {
@@ -236,12 +238,15 @@ func RunMoaiHE(
 		// C plays the role of the "first" operand in diag×col.
 		ctC = encryptVecsAtScale(ctx, packedC, inputLevel, params.DefaultScale())
 	}
+	fmt.Println("starting the kernel")
 
 	// -------- 4. Timed kernel (nTrials repetitions) ---------------------
 	var ctOut []*rlwe.Ciphertext
 	elapseds := make([]time.Duration, 0, nTrials)
 	for t := 0; t < nTrials; t++ {
-		beforeAlg := TakeMemSnap()
+		// beforeAlg := TakeMemSnap(true)
+		// mon := StartPeakMemMonitor(10 * time.Millisecond)
+
 		start := time.Now()
 		switch {
 		case !colCol:
@@ -252,10 +257,13 @@ func RunMoaiHE(
 			ctOut = MoaiColColNaiveHE(eval, ctQ, ctK, m, dPrime, nBatch, nHE)
 		}
 		elapsed := time.Since(start)
-		afterAlg := TakeMemSnap()
-		PrintMemDelta("MoaiDiagColBSGSHE total function memory", beforeAlg, afterAlg)
+		// mon.Stop()
+		// afterAlg := TakeMemSnap(true)
+		// PrintMemDelta("MoaiDiagColBSGSHE total function memory", beforeAlg, afterAlg)
+		// mon.PrintPeak("MoaiDiagColBSGSHE peak memory usage", beforeAlg)
 		elapseds = append(elapseds, elapsed)
 	}
+	fmt.Println("elapseds", elapseds)
 
 	// -------- 5. Decrypt and optionally verify --------------------------
 	decVecs := make([][]float64, len(ctOut))
