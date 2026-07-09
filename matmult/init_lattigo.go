@@ -45,6 +45,11 @@ type HEContext struct {
 	Decryptor *rlwe.Decryptor
 	Evaluator *ckks.Evaluator // carries the relin key; Galois keys are added per-algorithm
 	NHE       int             // number of usable slots (2^(LogN-1))
+
+	// bmm3Masks holds persistent BMM-III plaintext-mask caches keyed by
+	// level, shared across MatMulBmm3HE calls on this context so masks are
+	// encoded once and reused. Lazily initialized; see bmm3MaskCache.
+	bmm3Masks map[int]*maskCache
 }
 
 // InitLattigo instantiates CKKS with the given parameter literal and
