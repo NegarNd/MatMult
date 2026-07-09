@@ -136,6 +136,22 @@ func MoaiColColNaiveHE(eval *ckks.Evaluator, ctQ, ctK []*rlwe.Ciphertext, m, dPr
 // MoaiColColBSGSHE is the HE port of moai_col_col_bsgs:
 // j = α · b + r, with baby-step rotations on K done once per i and giant-
 // step rotations on Q done per α.
+//
+// Memory schedule (Orion port optimization, see MOAI_COLCOL_STREAMING.md):
+// instead of materializing the full baby-step cache beta[dPrime][b] AND the
+// full giant-step cache qRotAll[dPrime][·] up front and holding both for the
+// whole computation (Θ(dPrime·√m) live ciphertexts, which OOMs at large m /
+// large ring degree), we stream one column i at a time: build only column i's
+// baby (betaI) and giant (qRotI) rotations, accumulate each column's degree-2
+// contribution into the output accumulators out[j], and let column i's
+// rotations fall out of scope so the GC reclaims them before column i+1. Peak
+// live rotations drop to Θ(√m); the output accumulators out[m] are held either
+// way. The hoisting work is unchanged (one baby hoist + one giant hoist per
+// column, exactly as before), and the arithmetic is identical: out[j] still
+// equals Σ_i Rot(Q[i], giant_α)·Rot(K[i], r) accumulated over i in the same
+// order, with a single Relinearize+Rescale+final-rotate per j. Relin/rescale
+// are deferred to a final pass because out[j] receives its last contribution
+// only after the final column i = dPrime-1.
 func MoaiColColBSGSHE(eval *ckks.Evaluator, ctQ, ctK []*rlwe.Ciphertext, m, dPrime, rotStride, nHE int) []*rlwe.Ciphertext {
 	b := intCeilSqrt(m)
 	g := (m + b - 1) / b
@@ -149,36 +165,11 @@ func MoaiColColBSGSHE(eval *ckks.Evaluator, ctQ, ctK []*rlwe.Ciphertext, m, dPri
 	}
 
 	// -------------------------------------------------------------------------
-	// Baby-step cache:
-	// beta[i][r] = Rot(K[i], r*rotStride), with r=0 as identity.
-	// We hoist each ctK[i] once over all baby shifts.
+	// Precompute giant-step shifts (schedule only; no ciphertexts yet).
+	// giantShiftByAlpha[alpha] is the rotation applied to Q for that alpha
+	// (0 means identity); giantShifts is the distinct nonzero set we hoist.
 	// -------------------------------------------------------------------------
-	beta := make([][]*rlwe.Ciphertext, dPrime)
-	for i := 0; i < dPrime; i++ {
-		beta[i] = make([]*rlwe.Ciphertext, b)
-		beta[i][0] = ctK[i]
-
-		// Hoisting
-		rotated, err := eval.RotateHoistedNew(ctK[i], babyShifts)
-		if err != nil {
-			panic(err)
-		}
-		for r := 1; r < b; r++ {
-			beta[i][r] = rotated[r*rotStride]
-
-			// Non-hoisting part
-			// rot, err := eval.RotateNew(ctK[i], r*rotStride)
-			// if err != nil {
-			// 	panic(fmt.Errorf("baby-step rot (i=%d, r=%d): %w", i, r, err))
-			// }
-			// beta[i][r] = rot
-		}
-	}
-
-	// -------------------------------------------------------------------------
-	// Precompute giant-step shifts
-	// -------------------------------------------------------------------------
-	giantShiftByAlpha := make([]int, g) // indexed by alpha; 0 means identity
+	giantShiftByAlpha := make([]int, g)
 	distinctSet := map[int]struct{}{}
 	for alpha := 0; alpha < g; alpha++ {
 		shift := (alpha * b) % m
@@ -193,83 +184,94 @@ func MoaiColColBSGSHE(eval *ckks.Evaluator, ctQ, ctK []*rlwe.Ciphertext, m, dPri
 		giantShifts = append(giantShifts, s)
 	}
 
+	// out[j] holds the running, un-relinearized degree-2 sum over columns i.
+	out := make([]*rlwe.Ciphertext, m)
+
 	// -------------------------------------------------------------------------
-	// Hoist every Q[i] once over all distinct giant-step shifts.
-	// qRotAll[i][shift] gives Rot(Q[i], shift).
+	// Column-streaming loop. For each i we build ONLY column i's baby-step
+	// (betaI) and giant-step (qRotI) rotations, fold column i into every out[j],
+	// then drop them (GC reclaims). Peak live rotations = Θ(√m) instead of
+	// Θ(dPrime·√m).
 	// -------------------------------------------------------------------------
-	qRotAll := make([]map[int]*rlwe.Ciphertext, dPrime)
-	if len(giantShifts) > 0 {
-		for i := 0; i < dPrime; i++ {
-			rotated, err := eval.RotateHoistedNew(ctQ[i], giantShifts)
+	for i := 0; i < dPrime; i++ {
+		// Baby-step rotations of K[i]: betaI[r] = Rot(K[i], r*rotStride),
+		// r=0 identity. One hoist over all baby shifts (as before).
+		betaI := make([]*rlwe.Ciphertext, b)
+		betaI[0] = ctK[i]
+		if len(babyShifts) > 0 {
+			rotatedK, err := eval.RotateHoistedNew(ctK[i], babyShifts)
 			if err != nil {
-				panic(fmt.Errorf("hoisted giant-step rot (i=%d): %w", i, err))
+				panic(fmt.Errorf("baby-step hoist (i=%d): %w", i, err))
 			}
-			qRotAll[i] = rotated
+			for r := 1; r < b; r++ {
+				betaI[r] = rotatedK[r*rotStride]
+			}
 		}
+
+		// Giant-step rotations of Q[i]: qRotI[shift] = Rot(Q[i], shift).
+		// One hoist over all distinct giant shifts (as before).
+		var qRotI map[int]*rlwe.Ciphertext
+		if len(giantShifts) > 0 {
+			var err error
+			qRotI, err = eval.RotateHoistedNew(ctQ[i], giantShifts)
+			if err != nil {
+				panic(fmt.Errorf("giant-step hoist (i=%d): %w", i, err))
+			}
+		}
+
+		for alpha := 0; alpha < g; alpha++ {
+			qRotShift := giantShiftByAlpha[alpha]
+			var qi *rlwe.Ciphertext
+			if qRotShift == 0 {
+				qi = ctQ[i] // identity: alias the original
+			} else {
+				qi = qRotI[qRotShift]
+			}
+
+			for r := 0; r < b; r++ {
+				j := alpha*b + r
+				if j >= m {
+					break
+				}
+				if out[j] == nil {
+					// First column to touch j: MulNew (degree-2, no relin/rescale).
+					prod, err := eval.MulNew(qi, betaI[r])
+					if err != nil {
+						panic(fmt.Errorf("mul (i=%d, j=%d): %w", i, j, err))
+					}
+					out[j] = prod
+				} else {
+					// Fold this column into the running degree-2 accumulator.
+					eval.MulThenAdd(qi, betaI[r], out[j])
+				}
+			}
+		}
+		// betaI and qRotI go out of scope here -> GC reclaims column i's
+		// rotated ciphertexts before column i+1 is built.
 	}
 
-	// ---------------------------------------------------------------------------
-	out := make([]*rlwe.Ciphertext, m)
-	qRot := make([]*rlwe.Ciphertext, dPrime)
-
+	// -------------------------------------------------------------------------
+	// Finalize: relinearize + rescale each accumulated product, then apply the
+	// per-giant-step output rotation. Same ops as the original inner loop, run
+	// once after column streaming (out[j] is complete only after column i-1).
+	// -------------------------------------------------------------------------
 	for alpha := 0; alpha < g; alpha++ {
-		qRotShift := giantShiftByAlpha[alpha]
 		shift := (alpha * b) % m
-
-		if qRotShift == 0 {
-			copy(qRot, ctQ) // identity: alias the originals
-		} else {
-			for i := 0; i < dPrime; i++ {
-				qRot[i] = qRotAll[i][qRotShift]
-			}
-		}
-
+		finalShift := posModInt(shift*rotStride, nHE)
 		for r := 0; r < b; r++ {
 			j := alpha*b + r
 			if j >= m {
 				break
 			}
-			// partial, err := eval.MulRelinNew(qRot[0], beta[0][r]) // With key-switching
-			partial, err := eval.MulNew(qRot[0], beta[0][r])
-			if err != nil {
-				panic(err)
-			}
-			for i := 1; i < dPrime; i++ {
-				eval.MulThenAdd(qRot[i], beta[i][r], partial)
-			}
-			eval.Relinearize(partial, partial)
-			eval.Rescale(partial, partial)
-
-			// 	prod, err := eval.MulRelinNew(qRot[i], beta[i][r])
-			// 	if err != nil {
-			// 		panic(err)
-			// 	}
-			// 	if err := eval.Rescale(prod, prod); err != nil {
-			// 		panic(err)
-			// 	}
-			// 	if err := eval.Add(partial, prod, partial); err != nil {
-			// 		panic(err)
-			// 	}
-			// }
-
-			finalShift := posModInt(shift*rotStride, nHE)
-			var rolled *rlwe.Ciphertext
-			if finalShift == 0 {
-				out[j] = partial
-			} else {
-				rolled, err = eval.RotateNew(partial, finalShift)
+			eval.Relinearize(out[j], out[j])
+			eval.Rescale(out[j], out[j])
+			if finalShift != 0 {
+				rolled, err := eval.RotateNew(out[j], finalShift)
 				if err != nil {
 					panic(fmt.Errorf("final rot (alpha=%d, r=%d): %w", alpha, r, err))
 				}
 				out[j] = rolled
 			}
-			// if out[j] == nil {
-			// 	out[j] = rolled
-			// } else {
-			// 	if err := eval.Add(out[j], rolled, out[j]); err != nil {
-			// 		panic(err)
-			// 	}
-			// }
 		}
 	}
 	return out
